@@ -288,6 +288,8 @@
 						{
 							"name": "SP_UpdateWatermark",
 							"type": "SqlServerStoredProcedure",
+							"state": "Inactive",
+							"onInactiveMarkAs": "Succeeded",
 							"dependsOn": [
 								{
 									"activity": "Copy_Incremental_To_Target",
