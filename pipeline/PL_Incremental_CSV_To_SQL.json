@@ -134,8 +134,6 @@
 						{
 							"name": "LKP_OldWatermark",
 							"type": "Lookup",
-							"state": "Inactive",
-							"onInactiveMarkAs": "Succeeded",
 							"dependsOn": [
 								{
 									"activity": "Copy_CSV_To_Staging",
@@ -171,8 +169,6 @@
 						{
 							"name": "LKP_NewWatermark",
 							"type": "Lookup",
-							"state": "Inactive",
-							"onInactiveMarkAs": "Succeeded",
 							"dependsOn": [
 								{
 									"activity": "LKP_OldWatermark",
@@ -214,8 +210,6 @@
 						{
 							"name": "Copy_Incremental_To_Target",
 							"type": "Copy",
-							"state": "Inactive",
-							"onInactiveMarkAs": "Succeeded",
 							"dependsOn": [
 								{
 									"activity": "LKP_NewWatermark",
@@ -294,8 +288,6 @@
 						{
 							"name": "SP_UpdateWatermark",
 							"type": "SqlServerStoredProcedure",
-							"state": "Inactive",
-							"onInactiveMarkAs": "Succeeded",
 							"dependsOn": [
 								{
 									"activity": "Copy_Incremental_To_Target",
@@ -316,14 +308,14 @@
 								"storedProcedureParameters": {
 									"NewWatermark": {
 										"value": {
-											"value": "@{activity('LKP_NewWatermark').output.firstRow.NewWatermark}",
+											"value": "@activity('LKP_NewWatermark').output.firstRow.NewWatermark",
 											"type": "Expression"
 										},
 										"type": "DateTime"
 									},
 									"TableName": {
 										"value": {
-											"value": "@{item()}",
+											"value": "@item()",
 											"type": "Expression"
 										},
 										"type": "String"
