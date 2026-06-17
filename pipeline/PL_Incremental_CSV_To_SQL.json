@@ -1,0 +1,7 @@
+{
+	"name": "PL_Incremental_CSV_To_SQL",
+	"properties": {
+		"description": "Incremental load from ADLS CSVs to Azure SQL DB",
+		"annotations": []
+	}
+}
