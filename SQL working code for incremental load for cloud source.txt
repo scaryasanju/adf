@@ -1,0 +1,174 @@
+---step-1 pipeline_config — Master Control Table
+CREATE TABLE pipeline_config (
+    file_name       VARCHAR(100)  PRIMARY KEY,
+    staging_table   VARCHAR(100)  NOT NULL,
+    target_table    VARCHAR(100)  NOT NULL,
+    key_column      VARCHAR(100)  NOT NULL,
+    watermark_col   VARCHAR(100)  NOT NULL DEFAULT 'UpdatedAt',
+    is_active       BIT           NOT NULL DEFAULT 1
+);
+
+INSERT INTO pipeline_config VALUES
+('office.csv',  'stg_office',  'Office',   'office_id',  'UpdatedAt', 1),
+('order.csv',   'stg_order',   'Orders',   'order_id',   'UpdatedAt', 1),
+('product.csv', 'stg_product', 'Products', 'product_id', 'UpdatedAt', 1);
+
+-- To add a new file in future: just one INSERT, zero ADF changes
+-- INSERT INTO pipeline_config VALUES
+-- ('customer.csv','stg_customer','Customers','customer_id','UpdatedAt',1);
+
+-- step-2 watermark_table — Tracks Last Processed Timestamp
+CREATE TABLE watermark_table (
+    TableName       NVARCHAR(255) PRIMARY KEY,
+    WatermarkValue  DATETIME
+);
+
+INSERT INTO watermark_table VALUES ('office.csv',  '1900-01-01 00:00:00');
+INSERT INTO watermark_table VALUES ('order.csv',   '1900-01-01 00:00:00');
+INSERT INTO watermark_table VALUES ('product.csv', '1900-01-01 00:00:00');
+
+-- step 3: Staging Tables — Temporary CSV Holding Area
+CREATE TABLE stg_office (
+    office_id       VARCHAR(100),
+    office_name     VARCHAR(100),
+    city            VARCHAR(100),
+    state           VARCHAR(100),
+    total_employees INT,
+    UpdatedAt       DATETIME
+);
+
+CREATE TABLE stg_order (
+    order_id        INT,
+    customer_name   VARCHAR(100),
+    product_id      VARCHAR(100),
+    quantity        INT,
+    order_date      DATE,
+    total_amount    DECIMAL(10,2),
+    UpdatedAt       DATETIME
+);
+
+CREATE TABLE stg_product (
+    product_id      VARCHAR(100),
+    product_name    VARCHAR(100),
+    category        VARCHAR(50),
+    price           INT,
+    stock_quantity  INT,
+    UpdatedAt       DATETIME
+);
+
+-- step-4 : Target Tables — Final Destination
+CREATE TABLE Office (
+    office_id       VARCHAR(100) PRIMARY KEY,
+    office_name     VARCHAR(100),
+    city            VARCHAR(100),
+    state           VARCHAR(100),
+    total_employees INT,
+    UpdatedAt       DATETIME
+);
+
+CREATE TABLE Orders (
+    order_id        INT          PRIMARY KEY,
+    customer_name   VARCHAR(100),
+    product_id      VARCHAR(100),
+    quantity        INT,
+    order_date      DATE,
+    total_amount    DECIMAL(10,2),
+    UpdatedAt       DATETIME
+);
+
+CREATE TABLE Products (
+    product_id      VARCHAR(100) PRIMARY KEY,
+    product_name    VARCHAR(100),
+    category        VARCHAR(50),
+    price           INT,
+    stock_quantity  INT,
+    UpdatedAt       DATETIME
+);
+
+-- step-5 usp_UpsertToTarget — Dynamic MERGE Stored Procedure
+DROP PROCEDURE IF EXISTS usp_UpsertToTarget;
+GO
+
+CREATE PROCEDURE usp_UpsertToTarget
+    @StagingTable   NVARCHAR(255),
+    @TargetTable    NVARCHAR(255),
+    @KeyColumn      NVARCHAR(255),
+    @OldWatermark   DATETIME,
+    @NewWatermark   DATETIME
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @SQL        NVARCHAR(MAX);
+    DECLARE @UpdateCols NVARCHAR(MAX) = '';
+    DECLARE @InsertCols NVARCHAR(MAX) = '';
+    DECLARE @ValuesCols NVARCHAR(MAX) = '';
+
+    -- Build column lists dynamically
+    SELECT
+        @UpdateCols = @UpdateCols +
+            CASE WHEN COLUMN_NAME = @KeyColumn THEN ''
+                 ELSE 'TGT.[' + COLUMN_NAME + '] = SRC.[' + COLUMN_NAME + '], '
+            END,
+        @InsertCols = @InsertCols + '[' + COLUMN_NAME + '], ',
+        @ValuesCols = @ValuesCols + 'SRC.[' + COLUMN_NAME + '], '
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = @TargetTable
+    ORDER BY ORDINAL_POSITION;
+
+    -- Remove trailing commas
+    SET @UpdateCols = LEFT(@UpdateCols, LEN(@UpdateCols) - 1);
+    SET @InsertCols = LEFT(@InsertCols, LEN(@InsertCols) - 1);
+    SET @ValuesCols = LEFT(@ValuesCols, LEN(@ValuesCols) - 1);
+
+    -- Build MERGE with explicit CAST on UpdatedAt in staging
+    SET @SQL = '
+    MERGE INTO [' + @TargetTable + '] AS TGT
+    USING (
+        SELECT * FROM [' + @StagingTable + ']
+        WHERE  CAST(UpdatedAt AS DATETIME) > @OldWM
+          AND  CAST(UpdatedAt AS DATETIME) <= @NewWM
+    ) AS SRC
+    ON  TGT.[' + @KeyColumn + '] = SRC.[' + @KeyColumn + ']
+    WHEN MATCHED THEN
+        UPDATE SET ' + @UpdateCols + '
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT (' + @InsertCols + ')
+        VALUES (' + @ValuesCols + ');';
+
+    EXEC sp_executesql
+        @SQL,
+        N'@OldWM DATETIME, @NewWM DATETIME',
+        @OldWM = @OldWatermark,
+        @NewWM = @NewWatermark;
+
+END;
+GO
+
+-- step-6 usp_UpdateWatermark — Save Watermark After Each Run
+
+CREATE PROCEDURE usp_UpdateWatermark
+    @TableName     NVARCHAR(255),
+    @NewWatermark  DATETIME
+AS
+BEGIN
+    UPDATE watermark_table
+    SET    WatermarkValue = @NewWatermark
+    WHERE  TableName = @TableName;
+END;
+ 
+select * from stg_order
+select * from stg_product
+select * from stg_office
+
+select * from office
+
+
+
+
+
+SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
+FROM   INFORMATION_SCHEMA.COLUMNS
+WHERE  TABLE_NAME IN ('stg_office','stg_order','stg_product')
+  AND  COLUMN_NAME = 'UpdatedAt';
+select * from watermark_table
