@@ -1,0 +1,41 @@
+{
+	"name": "DS_SQL_Config",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "LS_SQLDB",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "AzureSqlTable",
+		"schema": [
+			{
+				"name": "file_name",
+				"type": "varchar"
+			},
+			{
+				"name": "staging_table",
+				"type": "varchar"
+			},
+			{
+				"name": "target_table",
+				"type": "varchar"
+			},
+			{
+				"name": "key_column",
+				"type": "varchar"
+			},
+			{
+				"name": "watermark_col",
+				"type": "varchar"
+			},
+			{
+				"name": "is_active",
+				"type": "bit"
+			}
+		],
+		"typeProperties": {
+			"schema": "dbo",
+			"table": "pipeline_config"
+		}
+	}
+}
