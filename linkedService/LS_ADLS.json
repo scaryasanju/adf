@@ -1,0 +1,12 @@
+{
+	"name": "LS_ADLS",
+	"type": "Microsoft.DataFactory/factories/linkedservices",
+	"properties": {
+		"annotations": [],
+		"type": "AzureBlobFS",
+		"typeProperties": {
+			"url": "https://aryadatalakegen2.dfs.core.windows.net/",
+			"encryptedCredential": "ew0KICAiVmVyc2lvbiI6ICIyMDE3LTExLTMwIiwNCiAgIlByb3RlY3Rpb25Nb2RlIjogIktleSIsDQogICJTZWNyZXRDb250ZW50VHlwZSI6ICJQbGFpbnRleHQiLA0KICAiQ3JlZGVudGlhbElkIjogIkRBVEFGQUNUT1JZQEUwMjk4RDA2LTE1REItNEM5OC04QjhDLUJCOEJFNEY2QTc3OV9hODc1ODlmMS0wYWQ2LTQwNGItYTFlNS01NTJhNmRhMmZiNzciDQp9"
+		}
+	}
+}
