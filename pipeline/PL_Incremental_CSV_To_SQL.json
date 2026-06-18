@@ -1,6 +1,408 @@
 {
 	"name": "PL_Incremental_CSV_To_SQL",
 	"properties": {
+		"description": "Metadata-driven incremental load ADLS CSV to Azure SQL DB",
+		"activities": [
+			{
+				"name": "ForEach_Files",
+				"type": "ForEach",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@pipeline().parameters.FileList",
+						"type": "Expression"
+					},
+					"isSequential": true,
+					"activities": [
+						{
+							"name": "LKP_Config",
+							"type": "Lookup",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "SELECT staging_table,\n       target_table,\n       key_column,\n       watermark_col\nFROM   pipeline_config\nWHERE  file_name  = '@{item()}'\n  AND  is_active  = 1\n",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "DS_SQL_Config",
+									"type": "DatasetReference"
+								}
+							}
+						},
+						{
+							"name": "SetVar_StagingName",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "LKP_Config",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "stagingTableName",
+								"value": {
+									"value": "@activity('LKP_Config').output.firstRow.staging_table",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SetVar_TargetName",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SetVar_StagingName",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "targetTableName",
+								"value": {
+									"value": "@activity('LKP_Config').output.firstRow.target_table",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "Script_TruncateStaging",
+							"type": "Script",
+							"dependsOn": [
+								{
+									"activity": "SetVar_TargetName",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "LS_SQLDB",
+								"type": "LinkedServiceReference"
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "NonQuery",
+										"text": {
+											"value": "TRUNCATE TABLE @{variables('stagingTableName')}",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "02:00:00"
+							}
+						},
+						{
+							"name": "Copy_CSV_To_Staging",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "Script_TruncateStaging",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "DelimitedTextSource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true,
+										"enablePartitionDiscovery": false
+									},
+									"formatSettings": {
+										"type": "DelimitedTextReadSettings"
+									}
+								},
+								"sink": {
+									"type": "AzureSqlSink",
+									"writeBehavior": "insert",
+									"sqlWriterUseTableLock": false
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"typeConversion": true,
+									"typeConversionSettings": {
+										"allowDataTruncation": true,
+										"treatBooleanAsNumber": false
+									}
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_ADLS_CSV",
+									"type": "DatasetReference",
+									"parameters": {
+										"FileName": {
+											"value": "@item()",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_SQL_Staging",
+									"type": "DatasetReference",
+									"parameters": {
+										"TableName": {
+											"value": "@variables('stagingTableName')",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "LKP_OldWatermark",
+							"type": "Lookup",
+							"dependsOn": [
+								{
+									"activity": "Copy_CSV_To_Staging",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "SELECT WatermarkValue\nFROM   watermark_table\nWHERE  TableName = '@{item()}'\n",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "DS_SQL_Watermark",
+									"type": "DatasetReference"
+								}
+							}
+						},
+						{
+							"name": "LKP_NewWatermark",
+							"type": "Lookup",
+							"dependsOn": [
+								{
+									"activity": "LKP_OldWatermark",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "SELECT MAX(UpdatedAt) AS NewWatermark\nFROM   @{variables('stagingTableName')}\n",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "DS_SQL_Staging",
+									"type": "DatasetReference",
+									"parameters": {
+										"TableName": {
+											"value": "@variables('stagingTableName')",
+											"type": "Expression"
+										}
+									}
+								}
+							}
+						},
+						{
+							"name": "SP_UpsertToTarget",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "LKP_NewWatermark",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[usp_UpsertToTarget]",
+								"storedProcedureParameters": {
+									"KeyColumn": {
+										"value": {
+											"value": "@activity('LKP_Config').output.firstRow.key_column",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"NewWatermark": {
+										"value": {
+											"value": "@activity('LKP_NewWatermark').output.firstRow.NewWatermark",
+											"type": "Expression"
+										},
+										"type": "DateTime"
+									},
+									"OldWatermark": {
+										"value": {
+											"value": "@activity('LKP_OldWatermark').output.firstRow.WatermarkValue",
+											"type": "Expression"
+										},
+										"type": "DateTime"
+									},
+									"StagingTable": {
+										"value": {
+											"value": "@variables('stagingTableName')",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"TargetTable": {
+										"value": {
+											"value": "@variables('targetTableName')",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQLDB",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP_UpdateWatermark",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "SP_UpsertToTarget",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "[dbo].[usp_UpdateWatermark]",
+								"storedProcedureParameters": {
+									"NewWatermark": {
+										"value": {
+											"value": "@activity('LKP_NewWatermark').output.firstRow.NewWatermark",
+											"type": "Expression"
+										},
+										"type": "DateTime"
+									},
+									"TableName": {
+										"value": {
+											"value": "@{item()}",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "LS_SQLDB",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"FileList": {
+				"type": "array",
+				"defaultValue": [
+					"office.csv",
+					"order.csv",
+					"product.csv"
+				]
+			}
+		},
+		"variables": {
+			"stagingTableName": {
+				"type": "String"
+			},
+			"targetTableName": {
+				"type": "String"
+			}
+		},
 		"annotations": []
 	}
 }
